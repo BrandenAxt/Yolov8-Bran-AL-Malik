@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trash Detector — YOLOv8</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0D0D11;
+    --surface:   #15151C;
+    --surface2:  #1C1C25;
+    --border:    #25252F;
+    --accent:    #4ECB8D;
+    --accent2:   #3BB87A;
+    --text:      #E2E8F0;
+    --muted:     #64748B;
+    --dim:       #2A2A38;
+    --danger:    #F87171;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Topbar ── */
+  .topbar {
+    height: 56px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .logo span { color: var(--accent); }
+
+  .divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .ctrl-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ctrl-label {
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctrl-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    min-width: 36px;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+  .spacer { flex: 1; }
+
+  /* Status */
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: background 0.3s;
+    flex-shrink: 0;
+  }
+  .status-dot.live {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 1.8s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+  .status-text {
+    font-size: 12px;
+    color: var(--muted);
+    transition: color 0.3s;
+  }
+  .status-text.live { color: var(--accent); }
+
+  .fps-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    min-width: 56px;
+    text-align: right;
+  }
+
+  /* Buttons */
+  .btn {
+    height: 32px;
+    padding: 0 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--text); }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn:disabled:hover { border-color: var(--border); color: var(--muted); }
+  .btn.primary {
+    background: var(--accent);
+    color: #0D0D11;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .btn.primary:hover { background: var(--accent2); border-color: var(--accent2); }
+  .btn.danger { color: var(--danger); border-color: #F8717144; }
+  .btn.danger:hover { background: #F8717112; border-color: var(--danger); }
+
+  /* ── Body ── */
+  .body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Video area */
+  .video-wrap {
+    flex: 1;
+    position: relative;
+    background: #080810;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  #videoFeed {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: none;
+  }
+
+  .placeholder {
+    text-align: center;
+    color: var(--dim);
+  }
+  .placeholder-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.4;
+  }
+  .placeholder p { font-size: 14px; }
+  .placeholder small { font-size: 12px; color: var(--muted); margin-top: 6px; display: block; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 268px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab {
+    flex: 1;
+    height: 44px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Label list */
+  .label-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .label-list::-webkit-scrollbar { width: 4px; }
+  .label-list::-webkit-scrollbar-track { background: transparent; }
+  .label-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .empty-state {
+    color: var(--dim);
+    font-size: 12px;
+    line-height: 1.7;
+    padding: 16px 4px;
+  }
+
+  /* Label card */
+  .label-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: border-color 0.15s;
+    animation: fadeIn 0.2s ease;
+  }
+  .label-card:hover { border-color: #35354A; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .label-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .label-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 400;
+  }
+  .label-conf {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .label-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 20px;
+    text-align: right;
+  }
+
+  /* Sidebar footer */
+  .sidebar-footer {
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .total-text {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .total-text span {
+    font-family: 'DM Mono', monospace;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .toggle-person {
+    font-size: 10px;
+    padding: 3px 10px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.15s;
+  }
+  .toggle-person:hover { border-color: var(--accent); color: var(--accent); }
+  .toggle-person.active { border-color: var(--accent); color: var(--accent); background: #4ECB8D15; }
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="logo">TRASH <span>DETECTOR</span></div>
+  <div class="divider"></div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">Camera</span>
+    <div class="ctrl-row">
+      <span style="font-size:13px; color:var(--text)">webcam-0</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">Confidence</span>
+    <div class="ctrl-row">
+      <span class="ctrl-val" id="confVal">45%</span>
+      <input type="range" id="confSlider" min="10" max="90" value="45">
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="status">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">Siap</span>
+  </div>
+
+  <span class="fps-badge" id="fpsBadge"></span>
+
+  <div class="divider"></div>
+
+  <button class="btn primary" id="btnStart" onclick="startCamera()">▶  Start</button>
+  <button class="btn danger"  id="btnStop"  onclick="stopCamera()" disabled>■  Stop</button>
+  <button class="btn"         id="btnShot"  onclick="screenshot()">⬤  Screenshot</button>
+</div>
+
+<!-- Body -->
+<div class="body">
+
+  <!-- Video -->
+  <div class="video-wrap">
+    <div class="placeholder" id="placeholder">
+      <div class="placeholder-icon">📷</div>
+      <p>Tekan <strong>Start</strong> untuk mulai deteksi</p>
+      <small>Arahkan kamera ke sampah</small>
+    </div>
+    <img id="videoFeed" src="/video" alt="feed">
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="tab-bar">
+      <button class="tab active" id="tabLabels" onclick="switchTab('labels')">Labels</button>
+      <button class="tab"        id="tabClass"  onclick="switchTab('classifications')">Classifications</button>
+    </div>
+
+    <div class="label-list" id="labelList">
+      <div class="empty-state">Belum ada deteksi.<br>Tunjukkan sampah ke kamera.</div>
+    </div>
+
+    <div class="sidebar-footer">
+      <span class="total-text">Total: <span id="totalCount">0</span> objek</span>
+      <button class="toggle-person" id="btnPerson" onclick="togglePerson()">Toggle person</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let running     = false;
+  let activeTab   = 'labels';
+  let showPerson  = false;
+  let pollTimer   = null;
+
+  // ── Conf slider ──
+  const slider  = document.getElementById('confSlider');
+  const confVal = document.getElementById('confVal');
+  slider.addEventListener('input', () => {
+    confVal.textContent = slider.value + '%';
+    fetch(`/conf/${slider.value / 100}`, { method: 'POST' });
+  });
+
+  // ── Tab ──
+  function switchTab(tab) {
+    activeTab = tab;
+    document.getElementById('tabLabels').classList.toggle('active', tab === 'labels');
+    document.getElementById('tabClass').classList.toggle('active',  tab === 'classifications');
+  }
+
+  // ── Start / Stop ──
+  async function startCamera() {
+    await fetch('/start', { method: 'POST' });
+    running = true;
+
+    document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('videoFeed').style.display   = 'block';
+    document.getElementById('videoFeed').src = '/video?' + Date.now();
+
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnStop').disabled  = false;
+
+    const dot  = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    dot.classList.add('live');
+    text.classList.add('live');
+    text.textContent = 'Deteksi aktif';
+
+    pollTimer = setInterval(pollDetections, 300);
+  }
+
+  async function stopCamera() {
+    await fetch('/stop', { method: 'POST' });
+    running = false;
+    clearInterval(pollTimer);
+
+    document.getElementById('videoFeed').style.display   = 'none';
+    document.getElementById('placeholder').style.display = 'flex';
+
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnStop').disabled  = true;
+
+    const dot  = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    dot.classList.remove('live');
+    text.classList.remove('live');
+    text.textContent = 'Kamera mati';
+
+    document.getElementById('fpsBadge').textContent = '';
+    renderLabels([], 0);
+  }
+
+  // ── Screenshot ──
+  function screenshot() {
+    const img  = document.getElementById('videoFeed');
+    const c    = document.createElement('canvas');
+    c.width    = img.naturalWidth  || 640;
+    c.height   = img.naturalHeight || 480;
+    c.getContext('2d').drawImage(img, 0, 0);
+    const a    = document.createElement('a');
+    a.href     = c.toDataURL('image/jpeg');
+    a.download = `screenshot_${Date.now()}.jpg`;
+    a.click();
+  }
+
+  // ── Toggle person ──
+  async function togglePerson() {
+    const res  = await fetch('/toggle_person', { method: 'POST' });
+    const data = await res.json();
+    showPerson = data.show_person;
+    document.getElementById('btnPerson').classList.toggle('active', showPerson);
+  }
+
+  // ── Poll detections ──
+  async function pollDetections() {
+    if (!running) return;
+    try {
+      const res  = await fetch('/detections');
+      const data = await res.json();
+      document.getElementById('fpsBadge').textContent = `FPS ${data.fps}`;
+      renderLabels(data.detections, data.detections.length);
+    } catch(e) {}
+  }
+
+  // ── Render sidebar ──
+  function renderLabels(dets, total) {
+    document.getElementById('totalCount').textContent = total;
+    const list = document.getElementById('labelList');
+
+    if (!dets || dets.length === 0) {
+      list.innerHTML = '<div class="empty-state">Belum ada deteksi.<br>Tunjukkan sampah ke kamera.</div>';
+      return;
+    }
+
+    // Aggregate
+    const agg = {};
+    dets.forEach(d => {
+      const key = activeTab === 'labels' ? d.cls : (d.cat || 'Lainnya');
+      if (!agg[key]) agg[key] = { count: 0, color: d.color, conf: 0 };
+      agg[key].count++;
+      agg[key].conf = Math.max(agg[key].conf, d.conf);
+    });
+
+    const sorted = Object.entries(agg).sort((a,b) => b[1].count - a[1].count);
+
+    list.innerHTML = sorted.map(([key, info]) => `
+      <div class="label-card">
+        <div class="label-dot" style="background:${info.color}"></div>
+        <span class="label-name">${key}</span>
+        <span class="label-conf">${info.conf}%</span>
+        <span class="label-count" style="color:${info.color}">${info.count}</span>
+      </div>
+    `).join('');
+  }
+
+  // Placeholder center
+  document.getElementById('placeholder').style.display = 'flex';
+  document.getElementById('placeholder').style.flexDirection = 'column';
+  document.getElementById('placeholder').style.alignItems = 'center';
+  document.getElementById('placeholder').style.justifyContent = 'center';
+</script>
+</body>
+</html>

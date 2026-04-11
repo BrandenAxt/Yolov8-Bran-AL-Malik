@@ -1,272 +1,560 @@
-"""
-Trash Detector — YOLOv8 + OpenCV
-=================================
-Deteksi sampah real-time pakai webcam laptop.
-Tampilan mirip screenshot: video feed + sidebar label kanan.
+# """
+# Trash Detector — YOLOv8 + PyQt5
+# =================================
+# Install:
+#     pip install PyQt5 ultralytics opencv-python numpy
 
-Install dulu:
-    pip install ultralytics opencv-python numpy
+# Jalankan:
+#     python trash_detector.py
+# """
 
-Jalankan:
-    python trash_detector.py
+# import sys
+# import cv2
+# import numpy as np
+# from PyQt5.QtWidgets import (
+#     QApplication, QMainWindow, QWidget, QLabel, QPushButton,
+#     QHBoxLayout, QVBoxLayout, QFrame, QSlider, QSizePolicy
+# )
+# from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+# from PyQt5.QtGui import QImage, QPixmap, QFont, QColor, QPainter, QPen, QBrush
+# from ultralytics import YOLO
+# from collections import defaultdict
+# import time
 
-Kontrol:
-    Q / ESC  → keluar
-    S        → screenshot
-    SPACE    → pause/resume
-"""
+# # ─── Config ──────────────────────────────────────────────────────────────────
 
-import cv2
-import numpy as np
-from ultralytics import YOLO
-from collections import defaultdict
-import time
-import os
+# MODEL_PATH  = "yolov8n.pt"
+# CAMERA_ID   = 0
+# CONF_THRESH = 0.45
 
-# ─── Konfigurasi ──────────────────────────────────────────────────────────────
+# HIDDEN_CLASSES = {"person", "tv", "chair", "couch", "bed",
+#                   "dining table", "toilet", "potted plant"}
 
-MODEL_PATH = "yolov8n.pt"   # Auto-download kalau belum ada (~6MB)
-CAMERA_ID  = 0              # 0 = webcam depan laptop
-CONF_THRESH = 0.45          # Threshold confidence (0-1)
-SIDEBAR_W  = 280            # Lebar sidebar kanan (pixel)
-WINDOW_NAME = "Trash Detector — YOLOv8"
+# LABEL_COLORS = {
+#     "bottle":     "#4ECB8D",
+#     "cup":        "#4ECB8D",
+#     "bowl":       "#4ECB8D",
+#     "toothbrush": "#4ECB8D",
+#     "banana":     "#F5A623",
+#     "apple":      "#F5A623",
+#     "orange":     "#F5A623",
+#     "pizza":      "#F5A623",
+#     "sandwich":   "#F5A623",
+#     "book":       "#5B9CF6",
+#     "laptop":     "#A78BFA",
+#     "cell phone": "#A78BFA",
+#     "keyboard":   "#A78BFA",
+#     "mouse":      "#A78BFA",
+#     "remote":     "#A78BFA",
+#     "scissors":   "#94A3B8",
+#     "knife":      "#94A3B8",
+#     "fork":       "#94A3B8",
+#     "spoon":      "#94A3B8",
+#     "wine glass": "#34D399",
+#     "vase":       "#34D399",
+#     "backpack":   "#F472B6",
+#     "handbag":    "#F472B6",
+#     "suitcase":   "#F472B6",
+#     "umbrella":   "#FB923C",
+#     "clock":      "#FB923C",
+# }
+# DEFAULT_COLOR = "#64748B"
 
-# Mapping: label COCO → info sampah
-TRASH_MAP = {
-    "bottle":      ("Botol plastik",   "Plastik",  (29, 158, 117)),
-    "cup":         ("Gelas/cup",       "Plastik",  (29, 158, 117)),
-    "bowl":        ("Mangkok",         "Organik",  (186, 117, 23)),
-    "banana":      ("Kulit pisang",    "Organik",  (239, 159, 39)),
-    "apple":       ("Sisa buah",       "Organik",  (239, 159, 39)),
-    "orange":      ("Kulit jeruk",     "Organik",  (239, 159, 39)),
-    "pizza":       ("Sisa makanan",    "Organik",  (186, 117, 23)),
-    "sandwich":    ("Sisa makanan",    "Organik",  (186, 117, 23)),
-    "book":        ("Kertas/buku",     "Kertas",   (55, 138, 221)),
-    "laptop":      ("Laptop bekas",    "Elektronik",(83, 74, 183)),
-    "cell phone":  ("Handphone",       "Elektronik",(83, 74, 183)),
-    "keyboard":    ("Keyboard",        "Elektronik",(83, 74, 183)),
-    "mouse":       ("Mouse komputer",  "Elektronik",(83, 74, 183)),
-    "scissors":    ("Gunting",         "Logam",    (136, 135, 128)),
-    "knife":       ("Pisau",           "Logam",    (136, 135, 128)),
-    "fork":        ("Garpu",           "Logam",    (136, 135, 128)),
-    "spoon":       ("Sendok",          "Logam",    (136, 135, 128)),
-    "wine glass":  ("Gelas kaca",      "Kaca",     (93, 202, 165)),
-    "vase":        ("Vas/kaca",        "Kaca",     (93, 202, 165)),
-    "backpack":    ("Tas bekas",       "Tekstil",  (212, 83, 126)),
-    "handbag":     ("Tas tangan",      "Tekstil",  (212, 83, 126)),
-    "suitcase":    ("Koper",           "Tekstil",  (212, 83, 126)),
-    "tie":         ("Kain/dasi",       "Tekstil",  (212, 83, 126)),
-    "umbrella":    ("Payung",          "Campuran", (216, 90, 48)),
-    "clock":       ("Jam bekas",       "Campuran", (216, 90, 48)),
-    "toothbrush":  ("Sikat gigi",      "Plastik",  (29, 158, 117)),
-    "remote":      ("Remote",          "Elektronik",(83, 74, 183)),
-    "can":         ("Kaleng",          "Logam",    (136, 135, 128)),
-    "paper":       ("Kertas",          "Kertas",   (55, 138, 221)),
-}
+# # BGR versions for OpenCV drawing
+# def hex_to_bgr(h):
+#     h = h.lstrip("#")
+#     r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+#     return (b, g, r)
 
-# Warna per kategori (BGR)
-CAT_COLOR = {
-    "Plastik":    (29, 158, 117),
-    "Organik":    (239, 159, 39),
-    "Kertas":     (55, 138, 221),
-    "Elektronik": (83, 74, 183),
-    "Logam":      (136, 135, 128),
-    "Kaca":       (93, 202, 165),
-    "Tekstil":    (212, 83, 126),
-    "Campuran":   (216, 90, 48),
-    "Lainnya":    (100, 100, 100),
-}
+# # ─── Detection Thread ─────────────────────────────────────────────────────────
 
-# ─── Helper draw ──────────────────────────────────────────────────────────────
+# class DetectionThread(QThread):
+#     frame_ready = pyqtSignal(np.ndarray, list, float)
 
-def draw_box(frame, x1, y1, x2, y2, label, conf, color):
-    """Gambar bounding box + label pill di atas box."""
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+#     def __init__(self, model, conf):
+#         super().__init__()
+#         self.model   = model
+#         self.conf    = conf
+#         self.running = False
+#         self.hidden  = set(HIDDEN_CLASSES)
 
-    text = f"{label}  {int(conf*100)}%"
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    fs, thick = 0.52, 1
-    (tw, th), bl = cv2.getTextSize(text, font, fs, thick)
+#     def run(self):
+#         cap = cv2.VideoCapture(CAMERA_ID)
+#         cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
+#         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
-    pad = 6
-    bx1, by1 = x1, max(0, y1 - th - pad*2)
-    bx2, by2 = x1 + tw + pad*2, y1
+#         fps_t = time.time()
+#         fps_n = 0
+#         fps   = 0.0
 
-    cv2.rectangle(frame, (bx1, by1), (bx2, by2), color, -1)
-    cv2.putText(frame, text, (bx1+pad, by2-pad//2), font, fs, (255,255,255), thick, cv2.LINE_AA)
+#         while self.running:
+#             ret, frame = cap.read()
+#             if not ret:
+#                 break
 
+#             results = self.model(frame, conf=self.conf, verbose=False)[0]
+#             dets    = []
 
-def draw_sidebar(sidebar, detections):
-    """Render sidebar putih mirip screenshot: label + count + conf bar."""
-    sidebar[:] = (250, 250, 250)   # background putih
+#             for box in results.boxes:
+#                 cls_name = self.model.names[int(box.cls[0])]
+#                 if cls_name in self.hidden:
+#                     continue
+#                 x1, y1, x2, y2 = map(int, box.xyxy[0])
+#                 score  = float(box.conf[0])
+#                 color  = LABEL_COLORS.get(cls_name, DEFAULT_COLOR)
+#                 bgr    = hex_to_bgr(color)
 
-    H, W = sidebar.shape[:2]
-    font  = cv2.FONT_HERSHEY_SIMPLEX
-    pad   = 18
+#                 dets.append({
+#                     "cls":   cls_name,
+#                     "conf":  score,
+#                     "hex":   color,
+#                     "bbox":  (x1, y1, x2, y2),
+#                 })
 
-    # ── Header ──
-    cv2.putText(sidebar, "Labels", (pad, 36), font, 0.65, (30,30,30), 1, cv2.LINE_AA)
-    cv2.line(sidebar, (pad, 44), (W-pad, 44), (200,200,200), 1)
+#                 # Draw box on frame
+#                 self._draw_box(frame, x1, y1, x2, y2, cls_name, bgr)
 
-    if not detections:
-        cv2.putText(sidebar, "Belum ada deteksi.", (pad, 80), font, 0.42, (160,160,160), 1, cv2.LINE_AA)
-        cv2.putText(sidebar, "Tunjukkan sampah ke kamera.", (pad, 100), font, 0.42, (160,160,160), 1, cv2.LINE_AA)
-        return
+#             fps_n += 1
+#             now = time.time()
+#             if now - fps_t >= 1.0:
+#                 fps   = fps_n / (now - fps_t)
+#                 fps_n = 0
+#                 fps_t = now
 
-    # Agregasi label
-    agg = defaultdict(lambda: {"count":0, "conf":0.0, "color":(100,100,100)})
-    for d in detections:
-        k = d["display"]
-        agg[k]["count"] += 1
-        agg[k]["conf"]   = max(agg[k]["conf"], d["conf"])
-        agg[k]["color"]  = d["color"]
+#             self.frame_ready.emit(frame, dets, fps)
 
-    y = 68
-    for label, info in sorted(agg.items(), key=lambda x: -x[1]["count"]):
-        if y > H - 20:
-            break
+#         cap.release()
 
-        color = info["color"]      # BGR
-        count = info["count"]
-        conf  = info["conf"]
+#     def _draw_box(self, frame, x1, y1, x2, y2, label, bgr):
+#         # Transparent fill
+#         overlay = frame.copy()
+#         cv2.rectangle(overlay, (x1, y1), (x2, y2), bgr, -1)
+#         cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
+#         # Border
+#         cv2.rectangle(frame, (x1, y1), (x2, y2), bgr, 2)
+#         # Pill
+#         fs = 0.55
+#         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, fs, 1)
+#         px, py = 10, 6
+#         py1 = max(0, y1 - th - py*2)
+#         cv2.rectangle(frame, (x1, py1), (x1+tw+px*2, y1), bgr, -1)
+#         cv2.putText(frame, label, (x1+px, y1-py),
+#                     cv2.FONT_HERSHEY_DUPLEX, fs, (255,255,255), 1, cv2.LINE_AA)
 
-        # ── Dot warna ──
-        dot_r = 6
-        cv2.circle(sidebar, (pad + dot_r, y + 2), dot_r, color, -1)
+# # ─── Label Row Widget ─────────────────────────────────────────────────────────
 
-        # ── Nama label ──
-        cv2.putText(sidebar, label, (pad + dot_r*2 + 8, y + 7),
-                    font, 0.46, (30,30,30), 1, cv2.LINE_AA)
+# class LabelRow(QWidget):
+#     def __init__(self, cls_name, count, hex_color, parent=None):
+#         super().__init__(parent)
+#         self.setFixedHeight(48)
+#         self.setAttribute(Qt.WA_StyledBackground, True)
+#         self.setStyleSheet("background: #1E1E24; border-radius: 8px;")
 
-        # ── Count di kanan ──
-        cnt_str = str(count)
-        (cw, _), _ = cv2.getTextSize(cnt_str, font, 0.52, 1)
-        cv2.putText(sidebar, cnt_str, (W - pad - cw, y + 7),
-                    font, 0.52, (80,80,80), 1, cv2.LINE_AA)
+#         layout = QHBoxLayout(self)
+#         layout.setContentsMargins(12, 0, 12, 0)
+#         layout.setSpacing(10)
 
-        # ── Confidence bar ──
-        bar_y  = y + 14
-        bar_x1 = pad + dot_r*2 + 8
-        bar_x2 = W - pad - 30
-        bar_w  = bar_x2 - bar_x1
-        cv2.rectangle(sidebar, (bar_x1, bar_y), (bar_x2, bar_y+3), (220,220,220), -1)
-        cv2.rectangle(sidebar, (bar_x1, bar_y), (bar_x1 + int(bar_w*conf), bar_y+3), color, -1)
+#         # Color dot
+#         dot = QLabel()
+#         dot.setFixedSize(10, 10)
+#         dot.setStyleSheet(f"""
+#             background: {hex_color};
+#             border-radius: 5px;
+#         """)
+#         layout.addWidget(dot)
 
-        # ── Separator ──
-        y += 38
-        cv2.line(sidebar, (pad, y - 4), (W - pad, y - 4), (230,230,230), 1)
+#         # Label name
+#         name_lbl = QLabel(cls_name)
+#         name_lbl.setStyleSheet("color: #E2E8F0; font-size: 13px; background: transparent;")
+#         name_lbl.setFont(QFont("Helvetica", 11))
+#         layout.addWidget(name_lbl)
 
-    # ── Footer: total deteksi ──
-    total = sum(v["count"] for v in agg.values())
-    footer = f"Total terdeteksi: {total}"
-    cv2.line(sidebar, (0, H-36), (W, H-36), (200,200,200), 1)
-    cv2.putText(sidebar, footer, (pad, H-14), font, 0.42, (120,120,120), 1, cv2.LINE_AA)
+#         layout.addStretch()
 
+#         # Count badge
+#         badge = QLabel(str(count))
+#         badge.setFixedSize(28, 22)
+#         badge.setAlignment(Qt.AlignCenter)
+#         badge.setStyleSheet(f"""
+#             background: transparent;
+#             color: {hex_color};
+#             font-size: 13px;
+#             font-weight: bold;
+#             border: 1px solid {hex_color}44;
+#             border-radius: 4px;
+#         """)
+#         layout.addWidget(badge)
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# # ─── Main Window ─────────────────────────────────────────────────────────────
 
-def main():
-    print("Loading YOLOv8 model...")
-    model = YOLO(MODEL_PATH)
-    print("Model loaded!")
+# class MainWindow(QMainWindow):
+#     def __init__(self):
+#         super().__init__()
+#         self.setWindowTitle("Trash Detector — YOLOv8")
+#         self.setMinimumSize(1100, 650)
+#         self.setStyleSheet("background: #0F0F13;")
 
-    cap = cv2.VideoCapture(CAMERA_ID)
-    if not cap.isOpened():
-        print(f"ERROR: Tidak bisa buka kamera ID={CAMERA_ID}")
-        return
+#         self.model   = None
+#         self.thread  = None
+#         self.running = False
+#         self.conf    = CONF_THRESH
+#         self.shot_n  = 0
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    cap.set(cv2.CAP_PROP_FPS, 30)
+#         self._build_ui()
+#         self._load_model()
 
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+#     def _build_ui(self):
+#         central = QWidget()
+#         self.setCentralWidget(central)
+#         root = QVBoxLayout(central)
+#         root.setContentsMargins(0, 0, 0, 0)
+#         root.setSpacing(0)
 
-    paused     = False
-    screenshot_n = 0
-    fps_timer  = time.time()
-    fps_count  = 0
-    fps_disp   = 0.0
+#         # ── Topbar ──
+#         topbar = QWidget()
+#         topbar.setFixedHeight(58)
+#         topbar.setStyleSheet("background: #16161C; border-bottom: 1px solid #2A2A35;")
+#         tl = QHBoxLayout(topbar)
+#         tl.setContentsMargins(20, 0, 20, 0)
+#         tl.setSpacing(16)
 
-    print("=" * 50)
-    print("Trash Detector berjalan!")
-    print("  Q / ESC  → keluar")
-    print("  S        → screenshot")
-    print("  SPACE    → pause/resume")
-    print("=" * 50)
+#         # App title
+#         title = QLabel("TRASH <span style='color:#4ECB8D'>DETECTOR</span>")
+#         title.setTextFormat(Qt.RichText)
+#         title.setStyleSheet("color: #E2E8F0; font-size: 15px; font-weight: bold; background: transparent;")
+#         tl.addWidget(title)
 
-    while True:
-        key = cv2.waitKey(1) & 0xFF
-        if key in (ord('q'), 27):
-            break
-        if key == ord(' '):
-            paused = not paused
-        if key == ord('s'):
-            fname = f"screenshot_{screenshot_n:03d}.jpg"
-            cv2.imwrite(fname, canvas)
-            print(f"Screenshot disimpan: {fname}")
-            screenshot_n += 1
+#         sep = QFrame()
+#         sep.setFrameShape(QFrame.VLine)
+#         sep.setStyleSheet("color: #2A2A35;")
+#         tl.addWidget(sep)
 
-        if paused:
-            cv2.imshow(WINDOW_NAME, canvas if 'canvas' in dir() else np.zeros((480,640+SIDEBAR_W,3), np.uint8))
-            continue
+#         # Conf label
+#         tl.addWidget(self._muted_label("Confidence"))
+#         self.conf_val = QLabel(f"{self.conf:.0%}")
+#         self.conf_val.setStyleSheet("color: #4ECB8D; font-size: 12px; font-weight: bold; background: transparent; min-width: 36px;")
+#         tl.addWidget(self.conf_val)
 
-        ret, frame = cap.read()
-        if not ret:
-            break
+#         slider = QSlider(Qt.Horizontal)
+#         slider.setRange(10, 90)
+#         slider.setValue(int(self.conf * 100))
+#         slider.setFixedWidth(100)
+#         slider.setStyleSheet("""
+#             QSlider::groove:horizontal { height: 4px; background: #2A2A35; border-radius: 2px; }
+#             QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;
+#                 background: #4ECB8D; border-radius: 7px; }
+#             QSlider::sub-page:horizontal { background: #4ECB8D; border-radius: 2px; }
+#         """)
+#         slider.valueChanged.connect(lambda v: (
+#             setattr(self, 'conf', v/100),
+#             self.conf_val.config(text=f"{v}%") if hasattr(self.conf_val, 'config')
+#             else self.conf_val.setText(f"{v/100:.0%}"),
+#             setattr(self.thread, 'conf', v/100) if self.thread else None
+#         ))
+#         tl.addWidget(slider)
 
-        # ── Inferensi YOLOv8 ──
-        results = model(frame, conf=CONF_THRESH, verbose=False)[0]
+#         tl.addStretch()
 
-        detections = []
-        for box in results.boxes:
-            cls_id  = int(box.cls[0])
-            cls_name = model.names[cls_id]
-            conf    = float(box.conf[0])
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
+#         # Status
+#         self.status_dot = QLabel("●")
+#         self.status_dot.setStyleSheet("color: #2A2A35; font-size: 18px; background: transparent;")
+#         tl.addWidget(self.status_dot)
 
-            info = TRASH_MAP.get(cls_name)
-            if info:
-                display, category, color = info
-            else:
-                display  = cls_name
-                category = "Lainnya"
-                color    = (100, 100, 100)
+#         self.status_lbl = QLabel("Memuat model...")
+#         self.status_lbl.setStyleSheet("color: #64748B; font-size: 12px; background: transparent;")
+#         tl.addWidget(self.status_lbl)
 
-            detections.append({
-                "cls":     cls_name,
-                "display": display,
-                "category": category,
-                "conf":    conf,
-                "color":   color,
-                "bbox":    (x1, y1, x2, y2),
-            })
+#         self.fps_lbl = QLabel("")
+#         self.fps_lbl.setStyleSheet("color: #4ECB8D; font-size: 12px; font-weight: bold; background: transparent; min-width: 60px;")
+#         tl.addWidget(self.fps_lbl)
 
-            draw_box(frame, x1, y1, x2, y2, display, conf, color)
+#         sep2 = QFrame()
+#         sep2.setFrameShape(QFrame.VLine)
+#         sep2.setStyleSheet("color: #2A2A35;")
+#         tl.addWidget(sep2)
 
-        # ── FPS overlay ──
-        fps_count += 1
-        now = time.time()
-        if now - fps_timer >= 1.0:
-            fps_disp  = fps_count / (now - fps_timer)
-            fps_count = 0
-            fps_timer = now
+#         # Buttons
+#         self.btn_start = self._btn("▶  Start", "#4ECB8D", "#0F0F13", enabled=False)
+#         self.btn_start.clicked.connect(self._start)
+#         tl.addWidget(self.btn_start)
 
-        cv2.putText(frame, f"FPS: {fps_disp:.1f}", (10, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2, cv2.LINE_AA)
-        cv2.putText(frame, f"FPS: {fps_disp:.1f}", (10, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (30,200,120), 1, cv2.LINE_AA)
+#         self.btn_stop = self._btn("■  Stop", "#1E1E24", "#64748B", enabled=False)
+#         self.btn_stop.clicked.connect(self._stop)
+#         tl.addWidget(self.btn_stop)
 
-        # ── Sidebar ──
-        sidebar = np.zeros((frame.shape[0], SIDEBAR_W, 3), dtype=np.uint8)
-        draw_sidebar(sidebar, detections)
+#         self.btn_shot = self._btn("⬤  Screenshot", "#1E1E24", "#64748B")
+#         self.btn_shot.clicked.connect(self._screenshot)
+#         tl.addWidget(self.btn_shot)
 
-        canvas = np.hstack([frame, sidebar])
-        cv2.imshow(WINDOW_NAME, canvas)
+#         root.addWidget(topbar)
 
-    cap.release()
-    cv2.destroyAllWindows()
-    print("Selesai.")
+#         # ── Body ──
+#         body = QWidget()
+#         bl   = QHBoxLayout(body)
+#         bl.setContentsMargins(0, 0, 0, 0)
+#         bl.setSpacing(0)
 
+#         # Video area
+#         self.video_lbl = QLabel()
+#         self.video_lbl.setAlignment(Qt.AlignCenter)
+#         self.video_lbl.setStyleSheet("background: #0A0A0E;")
+#         self.video_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+#         self.video_lbl.setText("Tekan  ▶ Start  untuk mulai\nArahkan kamera ke sampah")
+#         self.video_lbl.setStyleSheet("""
+#             background: #0A0A0E;
+#             color: #2A2A35;
+#             font-size: 16px;
+#         """)
+#         bl.addWidget(self.video_lbl, stretch=1)
 
-if __name__ == "__main__":
-    main()
+#         # Sidebar
+#         sidebar = QWidget()
+#         sidebar.setFixedWidth(260)
+#         sidebar.setStyleSheet("background: #16161C; border-left: 1px solid #2A2A35;")
+#         sl = QVBoxLayout(sidebar)
+#         sl.setContentsMargins(0, 0, 0, 0)
+#         sl.setSpacing(0)
+
+#         # Tab bar
+#         tab_bar = QWidget()
+#         tab_bar.setFixedHeight(44)
+#         tab_bar.setStyleSheet("background: #16161C; border-bottom: 1px solid #2A2A35;")
+#         tbl = QHBoxLayout(tab_bar)
+#         tbl.setContentsMargins(0, 0, 0, 0)
+#         tbl.setSpacing(0)
+
+#         self.tab_labels = QPushButton("Labels")
+#         self.tab_labels.setCheckable(True)
+#         self.tab_labels.setChecked(True)
+#         self.tab_class  = QPushButton("Classifications")
+#         self.tab_class.setCheckable(True)
+
+#         tab_style = """
+#             QPushButton {
+#                 background: transparent;
+#                 color: #64748B;
+#                 font-size: 12px;
+#                 border: none;
+#                 border-bottom: 2px solid transparent;
+#                 padding: 0 8px;
+#             }
+#             QPushButton:checked {
+#                 color: #E2E8F0;
+#                 border-bottom: 2px solid #4ECB8D;
+#                 font-weight: bold;
+#             }
+#             QPushButton:hover { color: #94A3B8; }
+#         """
+#         self.tab_labels.setStyleSheet(tab_style)
+#         self.tab_class.setStyleSheet(tab_style)
+#         self.tab_labels.clicked.connect(lambda: (self.tab_labels.setChecked(True), self.tab_class.setChecked(False)))
+#         self.tab_class.clicked.connect(lambda: (self.tab_class.setChecked(True), self.tab_labels.setChecked(False)))
+
+#         tbl.addWidget(self.tab_labels)
+#         tbl.addWidget(self.tab_class)
+#         sl.addWidget(tab_bar)
+
+#         # Label list scroll area
+#         self.list_container = QWidget()
+#         self.list_container.setStyleSheet("background: #16161C;")
+#         self.list_layout = QVBoxLayout(self.list_container)
+#         self.list_layout.setContentsMargins(12, 12, 12, 12)
+#         self.list_layout.setSpacing(6)
+#         self.list_layout.setAlignment(Qt.AlignTop)
+
+#         self.empty_lbl = QLabel("Belum ada deteksi.\nTunjukkan sampah ke kamera.")
+#         self.empty_lbl.setStyleSheet("color: #2A2A35; font-size: 12px; background: transparent;")
+#         self.empty_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+#         self.list_layout.addWidget(self.empty_lbl)
+
+#         sl.addWidget(self.list_container, stretch=1)
+
+#         # Footer
+#         footer = QWidget()
+#         footer.setFixedHeight(52)
+#         footer.setStyleSheet("background: #16161C; border-top: 1px solid #2A2A35;")
+#         fl = QHBoxLayout(footer)
+#         fl.setContentsMargins(16, 0, 16, 0)
+
+#         self.total_lbl = QLabel("Total terdeteksi: 0")
+#         self.total_lbl.setStyleSheet("color: #64748B; font-size: 11px; background: transparent;")
+#         fl.addWidget(self.total_lbl)
+#         fl.addStretch()
+
+#         btn_person = QPushButton("Toggle person")
+#         btn_person.setStyleSheet("""
+#             QPushButton {
+#                 background: #1E1E24;
+#                 color: #64748B;
+#                 font-size: 10px;
+#                 border: 1px solid #2A2A35;
+#                 border-radius: 4px;
+#                 padding: 4px 10px;
+#             }
+#             QPushButton:hover { background: #2A2A35; color: #94A3B8; }
+#         """)
+#         btn_person.clicked.connect(self._toggle_person)
+#         fl.addWidget(btn_person)
+
+#         sl.addWidget(footer)
+#         bl.addWidget(sidebar)
+
+#         root.addWidget(body, stretch=1)
+
+#         self._label_rows = []
+#         self._show_person = False
+
+#     # ── Helpers ───────────────────────────────────────────────────────────────
+
+#     def _muted_label(self, text):
+#         lbl = QLabel(text)
+#         lbl.setStyleSheet("color: #64748B; font-size: 11px; background: transparent;")
+#         return lbl
+
+#     def _btn(self, text, bg, fg, enabled=True):
+#         btn = QPushButton(text)
+#         btn.setEnabled(enabled)
+#         btn.setFixedHeight(32)
+#         btn.setCursor(Qt.PointingHandCursor)
+#         btn.setStyleSheet(f"""
+#             QPushButton {{
+#                 background: {bg};
+#                 color: {fg};
+#                 font-size: 12px;
+#                 border: 1px solid #2A2A35;
+#                 border-radius: 6px;
+#                 padding: 0 16px;
+#             }}
+#             QPushButton:hover {{ opacity: 0.85; background: #2A2A35; }}
+#             QPushButton:disabled {{ opacity: 0.4; }}
+#         """)
+#         return btn
+
+#     # ── Model ─────────────────────────────────────────────────────────────────
+
+#     def _load_model(self):
+#         from PyQt5.QtCore import QThread, pyqtSignal
+
+#         class Loader(QThread):
+#             done = pyqtSignal(object)
+#             def run(self):
+#                 self.done.emit(YOLO(MODEL_PATH))
+
+#         self._loader = Loader()
+#         self._loader.done.connect(self._on_model_ready)
+#         self._loader.start()
+
+#     def _on_model_ready(self, model):
+#         self.model = model
+#         self.status_lbl.setText("Model siap")
+#         self.status_lbl.setStyleSheet("color: #4ECB8D; font-size: 12px; background: transparent;")
+#         self.status_dot.setStyleSheet("color: #4ECB8D; font-size: 18px; background: transparent;")
+#         self.btn_start.setEnabled(True)
+
+#     # ── Camera ────────────────────────────────────────────────────────────────
+
+#     def _start(self):
+#         self.thread         = DetectionThread(self.model, self.conf)
+#         self.thread.hidden  = set(HIDDEN_CLASSES) if not self._show_person else set(HIDDEN_CLASSES - {"person"})
+#         self.thread.running = True
+#         self.thread.frame_ready.connect(self._on_frame)
+#         self.thread.start()
+#         self.btn_start.setEnabled(False)
+#         self.btn_stop.setEnabled(True)
+#         self.status_lbl.setText("Deteksi aktif")
+#         self.status_dot.setStyleSheet("color: #4ECB8D; font-size: 18px; background: transparent;")
+#         self.video_lbl.setStyleSheet("background: #0A0A0E;")
+#         self.video_lbl.setText("")
+
+#     def _stop(self):
+#         if self.thread:
+#             self.thread.running = False
+#             self.thread.wait()
+#         self.btn_start.setEnabled(True)
+#         self.btn_stop.setEnabled(False)
+#         self.status_lbl.setText("Kamera mati")
+#         self.status_lbl.setStyleSheet("color: #64748B; font-size: 12px; background: transparent;")
+#         self.status_dot.setStyleSheet("color: #2A2A35; font-size: 18px; background: transparent;")
+#         self.fps_lbl.setText("")
+#         self.video_lbl.setStyleSheet("""
+#             background: #0A0A0E;
+#             color: #2A2A35;
+#             font-size: 16px;
+#         """)
+#         self.video_lbl.setText("Tekan  ▶ Start  untuk mulai\nArahkan kamera ke sampah")
+#         self._update_sidebar([])
+
+#     def _screenshot(self):
+#         px = self.video_lbl.pixmap()
+#         if px:
+#             fname = f"screenshot_{self.shot_n:03d}.jpg"
+#             px.save(fname)
+#             print(f"Saved: {fname}")
+#             self.shot_n += 1
+
+#     def _toggle_person(self):
+#         self._show_person = not self._show_person
+#         if self.thread:
+#             if self._show_person:
+#                 self.thread.hidden.discard("person")
+#             else:
+#                 self.thread.hidden.add("person")
+
+#     # ── Frame update ──────────────────────────────────────────────────────────
+
+#     def _on_frame(self, frame, dets, fps):
+#         self.fps_lbl.setText(f"FPS {fps:.1f}")
+
+#         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+#         h, w, ch = rgb.shape
+#         qimg = QImage(rgb.data, w, h, ch * w, QImage.Format_RGB888)
+#         px   = QPixmap.fromImage(qimg)
+
+#         lw = self.video_lbl.width()
+#         lh = self.video_lbl.height()
+#         self.video_lbl.setPixmap(
+#             px.scaled(lw, lh, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+#         )
+#         self._update_sidebar(dets)
+
+#     def _update_sidebar(self, dets):
+#         # Clear rows
+#         for row in self._label_rows:
+#             row.setParent(None)
+#         self._label_rows = []
+
+#         if not dets:
+#             self.empty_lbl.show()
+#             self.total_lbl.setText("Total terdeteksi: 0")
+#             return
+
+#         self.empty_lbl.hide()
+
+#         agg = defaultdict(lambda: {"count": 0, "hex": DEFAULT_COLOR})
+#         for d in dets:
+#             k = d["cls"]
+#             agg[k]["count"] += 1
+#             agg[k]["hex"]    = d["hex"]
+
+#         for cls_name, info in sorted(agg.items(), key=lambda x: -x[1]["count"]):
+#             row = LabelRow(cls_name, info["count"], info["hex"])
+#             self.list_layout.addWidget(row)
+#             self._label_rows.append(row)
+
+#         total = sum(i["count"] for i in agg.values())
+#         self.total_lbl.setText(f"Total terdeteksi: {total}")
+
+#     def closeEvent(self, e):
+#         if self.thread:
+#             self.thread.running = False
+#             self.thread.wait()
+#         e.accept()
+
+# # ─── Entry ───────────────────────────────────────────────────────────────────
+
+# if __name__ == "__main__":
+#     app    = QApplication(sys.argv)
+#     app.setFont(QFont("Helvetica", 10))
+#     window = MainWindow()
+#     window.show()
+#     sys.exit(app.exec_())
