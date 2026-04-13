@@ -11,9 +11,11 @@ Buka di browser:
     http://localhost:5000
 """
 
+import os
+import glob
 import cv2
 import numpy as np
-from flask import Flask, Response, render_template, jsonify
+from flask import Flask, Response, render_template, jsonify, request
 from ultralytics import YOLO
 from collections import defaultdict
 import threading
@@ -70,12 +72,14 @@ app      = Flask(__name__)
 model    = YOLO(MODEL_PATH)
 cap      = None
 lock     = threading.Lock()
+model_lock = threading.Lock()
 state    = {
     "running":      False,
     "conf":         CONF_THRESH,
     "show_person":  False,
     "detections":   [],
     "fps":          0.0,
+    "current_model": MODEL_PATH,
 }
 
 # ─── Camera thread ───────────────────────────────────────────────────────────
@@ -86,8 +90,8 @@ def camera_loop():
     global cap, latest_frame
 
     cap = cv2.VideoCapture(CAMERA_ID)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     fps_t = time.time()
     fps_n = 0
@@ -96,12 +100,16 @@ def camera_loop():
         ret, frame = cap.read()
         if not ret:
             break
+        
+        # Mirror kamera
+        frame = cv2.flip(frame, 1)
 
         hidden = set(HIDDEN_CLASSES)
         if state["show_person"]:
             hidden.discard("person")
 
-        results = model(frame, conf=state["conf"], verbose=False)[0]
+        with model_lock:
+            results = model(frame, conf=state["conf"], verbose=False)[0]
         dets    = []
 
         for box in results.boxes:
@@ -154,6 +162,26 @@ def camera_loop():
 def index():
     return render_template("index.html")
 
+@app.route("/models")
+def get_models():
+    pt_files = glob.glob("*.pt")
+    return jsonify({"models": pt_files, "current": state["current_model"]})
+
+@app.route("/set_model", methods=["POST"])
+def set_model():
+    global model
+    data = request.get_json()
+    new_model = data.get("model")
+    if new_model and os.path.exists(new_model) and new_model.endswith(".pt"):
+        try:
+            with model_lock:
+                model = YOLO(new_model)
+                state["current_model"] = new_model
+            return jsonify({"status": "ok", "model": new_model})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return jsonify({"error": "Model not found or invalid"}), 400
+
 @app.route("/start", methods=["POST"])
 def start():
     if not state["running"]:
@@ -200,8 +228,68 @@ def video():
     return Response(gen_frames(),
                     mimetype="multipart/x-mixed-replace; boundary=frame")
 
+@app.route("/upload", methods=["POST"])
+def upload():
+    file = request.files.get("image")
+    if not file:
+        return jsonify({"error": "No image uploaded"}), 400
+    
+    in_memory_file = file.read()
+    nparr = np.frombuffer(in_memory_file, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if img is None:
+        return jsonify({"error": "Invalid image"}), 400
+
+    with model_lock:
+        results = model(img, conf=state["conf"], verbose=False)[0]
+    dets = []
+    
+    hidden = set(HIDDEN_CLASSES)
+    if state["show_person"]:
+        hidden.discard("person")
+
+    for box in results.boxes:
+        cls_name = model.names[int(box.cls[0])]
+        if cls_name in hidden:
+            continue
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
+        score  = float(box.conf[0])
+        color  = LABEL_COLORS.get(cls_name, DEFAULT_COLOR)
+        bgr    = hex_to_bgr(color)
+
+        dets.append({
+            "cls":   cls_name,
+            "conf":  round(score, 2),
+            "color": color,
+        })
+
+        # Draw box
+        overlay = img.copy()
+        cv2.rectangle(overlay, (x1,y1), (x2,y2), bgr, -1)
+        cv2.addWeighted(overlay, 0.15, img, 0.85, 0, img)
+        cv2.rectangle(img, (x1,y1), (x2,y2), bgr, 2)
+
+        # Pill label
+        fs = 0.55
+        label_text = f"{cls_name} {score:.2f}"
+        (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_DUPLEX, fs, 1)
+        px, py = 10, 6
+        py1 = max(0, y1 - th - py*2)
+        cv2.rectangle(img, (x1, py1), (x1+tw+px*2, y1), bgr, -1)
+        cv2.putText(img, label_text, (x1+px, y1-py),
+                    cv2.FONT_HERSHEY_DUPLEX, fs, (255,255,255), 1, cv2.LINE_AA)
+
+    _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    img_b64 = base64.b64encode(buffer).decode('utf-8')
+
+    return jsonify({
+        "image_b64": img_b64,
+        "detections": dets
+    })
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("Trash Detector running → http://localhost:5000")
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    print("Trash Detector running → http://localhost:5050")
+    app.run(host="0.0.0.0", port=5050, debug=False, threaded=True)

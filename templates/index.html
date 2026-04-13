@@ -355,6 +355,16 @@
   <div class="divider"></div>
 
   <div class="ctrl-group">
+    <span class="ctrl-label">Model</span>
+    <div class="ctrl-row">
+      <select id="modelSelect" onchange="changeModel(this.value)" style="background:var(--surface2); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:2px 4px; font-size:12px; outline:none; cursor:pointer; max-width: 100px;">
+      </select>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="ctrl-group">
     <span class="ctrl-label">Confidence</span>
     <div class="ctrl-row">
       <span class="ctrl-val" id="confVal">45%</span>
@@ -376,6 +386,9 @@
   <button class="btn primary" id="btnStart" onclick="startCamera()">▶  Start</button>
   <button class="btn danger"  id="btnStop"  onclick="stopCamera()" disabled>■  Stop</button>
   <button class="btn"         id="btnShot"  onclick="screenshot()">⬤  Screenshot</button>
+  <div class="divider"></div>
+  <input type="file" id="fileInput" style="display: none;" accept="image/*" onchange="handleImageUpload(event)">
+  <button class="btn"         id="btnUpload" onclick="document.getElementById('fileInput').click()">📁 Upload Image</button>
 </div>
 
 <!-- Body -->
@@ -419,9 +432,18 @@
   // ── Conf slider ──
   const slider  = document.getElementById('confSlider');
   const confVal = document.getElementById('confVal');
+  let uploadConfTimer = null;
   slider.addEventListener('input', () => {
     confVal.textContent = slider.value + '%';
-    fetch(`/conf/${slider.value / 100}`, { method: 'POST' });
+    fetch(`/conf/${slider.value / 100}`, { method: 'POST' }).then(() => {
+      // Refresh image detection realtime (debounced)
+      if (!running && window.lastUploadedFile) {
+        clearTimeout(uploadConfTimer);
+        uploadConfTimer = setTimeout(() => {
+          handleImageUpload({target: {files: [window.lastUploadedFile]}});
+        }, 300);
+      }
+    });
   });
 
   // ── Tab ──
@@ -526,14 +548,72 @@
 
     const sorted = Object.entries(agg).sort((a,b) => b[1].count - a[1].count);
 
-    list.innerHTML = sorted.map(([key, info]) => `
+    list.innerHTML = sorted.map(([key, info]) => {
+      const isDecimal = info.conf > 0 && info.conf <= 1;
+      const confDisplay = isDecimal ? info.conf.toFixed(2) : info.conf + '%';
+      return `
       <div class="label-card">
         <div class="label-dot" style="background:${info.color}"></div>
         <span class="label-name">${key}</span>
-        <span class="label-conf">${info.conf}%</span>
+        <span class="label-conf">${confDisplay}</span>
         <span class="label-count" style="color:${info.color}">${info.count}</span>
       </div>
-    `).join('');
+    `}).join('');
+  }
+
+  // ── Upload Image ──
+  async function handleImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    window.lastUploadedFile = file;
+
+    if (running) {
+      await stopCamera();
+    }
+
+    const formData = new FormData();
+    formData.append("image", file);
+
+    document.getElementById('videoFeed').style.display   = 'none';
+    document.getElementById('placeholder').style.display = 'flex';
+    document.getElementById('placeholder').innerHTML = '<div class="placeholder-icon">⏳</div><p>Menganalisis gambar...</p>';
+
+    try {
+      const res = await fetch('/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      
+      if (data.error) {
+        alert(data.error);
+        stopUploadMode();
+        return;
+      }
+
+      document.getElementById('placeholder').style.display = 'none';
+      const videoFeed = document.getElementById('videoFeed');
+      videoFeed.style.display = 'block';
+      videoFeed.src = 'data:image/jpeg;base64,' + data.image_b64;
+
+      document.getElementById('statusDot').classList.add('live');
+      document.getElementById('statusText').textContent = 'Upload Selesai';
+      document.getElementById('fpsBadge').textContent = 'Statis';
+      
+      renderLabels(data.detections, data.detections.length);
+    } catch (e) {
+      alert('Gagal mengupload gambar.');
+      stopUploadMode();
+    }
+  }
+
+  function stopUploadMode() {
+    window.lastUploadedFile = null;
+    document.getElementById('videoFeed').style.display = 'none';
+    document.getElementById('placeholder').style.display = 'flex';
+    document.getElementById('placeholder').innerHTML = '<div class="placeholder-icon">📷</div><p>Tekan <strong>Start</strong> untuk mulai deteksi</p><small>Atau klik <strong>Upload Image</strong></small>';
+    document.getElementById('statusDot').classList.remove('live');
+    document.getElementById('statusText').textContent = 'Siap';
+    document.getElementById('fpsBadge').textContent = '';
+    renderLabels([], 0);
   }
 
   // Placeholder center
@@ -541,6 +621,42 @@
   document.getElementById('placeholder').style.flexDirection = 'column';
   document.getElementById('placeholder').style.alignItems = 'center';
   document.getElementById('placeholder').style.justifyContent = 'center';
+
+  // ── Models ──
+  async function loadModels() {
+    try {
+      const res = await fetch('/models');
+      const data = await res.json();
+      const select = document.getElementById('modelSelect');
+      select.innerHTML = '';
+      data.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        if (m === data.current) opt.selected = true;
+        select.appendChild(opt);
+      });
+    } catch (e) {
+      console.error("Failed to load models");
+    }
+  }
+
+  async function changeModel(modelName) {
+    if (!modelName) return;
+    document.getElementById('statusText').textContent = 'Mengganti model...';
+    try {
+      await fetch('/set_model', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({model: modelName})
+      });
+      document.getElementById('statusText').textContent = running ? 'Deteksi aktif' : 'Siap';
+    } catch (e) {
+      alert("Gagal mengganti model");
+    }
+  }
+
+  loadModels();
 </script>
 </body>
 </html>
