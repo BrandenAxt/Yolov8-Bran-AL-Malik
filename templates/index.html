@@ -399,8 +399,20 @@
     <div class="placeholder" id="placeholder">
       <div class="placeholder-icon">📷</div>
       <p>Tekan <strong>Start</strong> untuk mulai deteksi</p>
-      <small>Arahkan kamera ke sampah</small>
+      <small>Atau klik <strong>Upload Image</strong></small>
     </div>
+    
+    <div id="sideBySide" style="display:none; width:100%; height:100%; flex-direction:row;">
+      <div style="flex:1; display:flex; flex-direction:column; background:#080810; border-right:1px solid var(--border);">
+        <div style="padding:10px 15px; font-size:12px; color:var(--muted); background:var(--surface); border-bottom:1px solid var(--border);">Original Image</div>
+        <img id="originalImage" style="width:100%; height:calc(100% - 37px); object-fit:contain; padding:10px;" alt="original">
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; background:#080810;">
+        <div style="padding:10px 15px; font-size:12px; color:var(--muted); background:var(--surface); border-bottom:1px solid var(--border);">Detection Result</div>
+        <img id="detectedImage" style="width:100%; height:calc(100% - 37px); object-fit:contain; padding:10px;" alt="detected">
+      </div>
+    </div>
+
     <img id="videoFeed" src="/video" alt="feed">
   </div>
 
@@ -459,6 +471,7 @@
     running = true;
 
     document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('sideBySide').style.display = 'none';
     document.getElementById('videoFeed').style.display   = 'block';
     document.getElementById('videoFeed').src = '/video?' + Date.now();
 
@@ -590,9 +603,13 @@
       }
 
       document.getElementById('placeholder').style.display = 'none';
-      const videoFeed = document.getElementById('videoFeed');
-      videoFeed.style.display = 'block';
-      videoFeed.src = 'data:image/jpeg;base64,' + data.image_b64;
+      document.getElementById('videoFeed').style.display = 'none';
+      
+      const sbs = document.getElementById('sideBySide');
+      sbs.style.display = 'flex';
+      
+      document.getElementById('originalImage').src = URL.createObjectURL(file);
+      document.getElementById('detectedImage').src = 'data:image/jpeg;base64,' + data.image_b64;
 
       document.getElementById('statusDot').classList.add('live');
       document.getElementById('statusText').textContent = 'Upload Selesai';
@@ -608,6 +625,7 @@
   function stopUploadMode() {
     window.lastUploadedFile = null;
     document.getElementById('videoFeed').style.display = 'none';
+    document.getElementById('sideBySide').style.display = 'none';
     document.getElementById('placeholder').style.display = 'flex';
     document.getElementById('placeholder').innerHTML = '<div class="placeholder-icon">📷</div><p>Tekan <strong>Start</strong> untuk mulai deteksi</p><small>Atau klik <strong>Upload Image</strong></small>';
     document.getElementById('statusDot').classList.remove('live');

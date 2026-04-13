@@ -292,4 +292,4 @@ def upload():
 
 if __name__ == "__main__":
     print("Trash Detector running → http://localhost:5050")
-    app.run(host="0.0.0.0", port=5050, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=5050, debug=True, threaded=True)
